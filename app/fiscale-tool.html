@@ -135,12 +135,13 @@ ol.steps > li > div { display: grid; gap: 8px; min-width: 0; }
    Bevat bewust geen fiscale waarden: die komen uit het register (db),
    opgehaald uit de bron en door jou bevestigd.
    ===================================================================== */
-const FISIN = "https://www.belastingdienst.nl/wps/wcm/connect/fisin/fisin{jaar}/";
+const FISIN_T = "https://www.belastingdienst.nl/wps/wcm/connect/fisin/fisin{jaar}/";
+const fisin = j => FISIN_T.replace("{jaar}", j);
 const CATALOGUS = [
   {
     key: "ib_schijven", groep: "Inkomstenbelasting",
     naam: "Tarieven box 1 (jonger dan AOW-leeftijd)",
-    bron: FISIN + "belastingberekening",
+    bronnen: j => [fisin(j) + "belastingberekening", "https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/prive/inkomstenbelasting/heffingskortingen_boxen_tarieven/boxen_en_tarieven/box_1/box_1"],
     schema: '{"schijven":[{"tot":number|null,"tarief":fractie}]}',
     instructie: "Neem de schijven voor iemand die in dit jaar de AOW-leeftijd NIET bereikt. 'tot' is de bovengrens van het belastbaar inkomen van die schijf; de laatste schijf heeft tot=null. Tarief is het totaaltarief (belasting + premies volksverzekeringen) als fractie.",
     valideer: w => Array.isArray(w.schijven) && w.schijven.length >= 2 && w.schijven.every((s, i, a) => isFrac(s.tarief) && (i === a.length - 1 ? s.tot === null : isNum(s.tot) && (i === 0 || s.tot > a[i - 1].tot))),
@@ -148,7 +149,7 @@ const CATALOGUS = [
   {
     key: "ahk", groep: "Inkomstenbelasting",
     naam: "Algemene heffingskorting (jonger dan AOW-leeftijd)",
-    bron: FISIN + "heffingskortingen",
+    bronnen: j => [fisin(j) + "heffingskortingen"],
     schema: '{"max":number,"afbouw_vanaf":number,"afbouw_pct":fractie,"nihil_vanaf":number,"grondslag":"verzamelinkomen"|"anders"}',
     instructie: "max = maximale korting. afbouw_vanaf = inkomensgrens waarboven de korting afneemt. afbouw_pct = afbouwpercentage als fractie. nihil_vanaf = inkomen vanaf waar de korting 0 is. Gebruik de tabel voor wie de AOW-leeftijd nog niet heeft bereikt.",
     valideer: w => isNum(w.max) && isNum(w.afbouw_vanaf) && isFrac(w.afbouw_pct) && isNum(w.nihil_vanaf) && w.nihil_vanaf > w.afbouw_vanaf,
@@ -156,7 +157,7 @@ const CATALOGUS = [
   {
     key: "arbeidskorting", groep: "Inkomstenbelasting",
     naam: "Arbeidskorting (jonger dan AOW-leeftijd)",
-    bron: FISIN + "heffingskortingen",
+    bronnen: j => [fisin(j) + "heffingskortingen"],
     schema: '{"schijven":[{"van":number,"tot":number|null,"basis":number,"pct":fractie}],"grondslag":"arbeidsinkomen"|"anders"}',
     instructie: "Elke rij: korting = basis + pct × (arbeidsinkomen − van). Bij een afbouwrij (bijv. '€ 5.685 − 6,510% × (arbeidsinkomen − € 45.592)') is basis 5685, van 45592 en pct NEGATIEF (-0.0651). Een eerste rij '4,156% × arbeidsinkomen' wordt van 0, basis 0. Een rij 'vanaf X: € 0' wordt basis 0, pct 0, tot null. Rijen aaneensluitend van laag naar hoog, alleen de tabel voor wie de AOW-leeftijd nog niet heeft bereikt.",
     valideer: w => Array.isArray(w.schijven) && w.schijven.length >= 2 && w.schijven.every(s => isNum(s.van) && isNum(s.basis) && typeof s.pct === "number" && Math.abs(s.pct) < 1 && (s.tot === null || isNum(s.tot))),
@@ -164,15 +165,15 @@ const CATALOGUS = [
   {
     key: "aftrekbeperking", groep: "Inkomstenbelasting",
     naam: "Tariefsaanpassing aftrekposten (maximaal aftrektarief)",
-    bron: FISIN + "belastingberekening",
+    bronnen: j => ["https://www.belastingdienst.nl/wps/wcm/connect/nl/aftrek-en-kortingen/content/afbouw-tarief-aftrekposten-bij-hoog-inkomen", "https://www.belastingdienst.nl/wps/wcm/connect/nl/koopwoning/content/tariefsaanpassing-eigen-woning"],
     schema: '{"max_tarief":fractie,"vanaf_inkomen":number}',
-    instructie: "Het maximale tarief waartegen aftrekposten zoals de aftrek eigen woning worden verrekend (tariefsaanpassing), en de inkomensgrens waarboven de tariefsaanpassing geldt. Staat het percentage niet letterlijk in de tekst, geef dan gevonden=false; leid het niet af uit de schijftarieven.",
+    instructie: "max_tarief = het percentage dat je in de hoogste schijf maximaal terugkrijgt over je aftrekposten (bijv. 'maximaal 37,56% belasting terug'). vanaf_inkomen = de grens van het inkomen uit werk en woning zonder aftrekposten waarboven de tariefsaanpassing geldt. Neem de waarden voor het genoemde jaar, niet die van het jaar ervoor. Staat het percentage niet letterlijk in de tekst, geef dan gevonden=false; leid het niet af uit de schijftarieven.",
     valideer: w => isFrac(w.max_tarief) && isNum(w.vanaf_inkomen),
   },
   {
     key: "ewf", groep: "Eigen woning",
     naam: "Eigenwoningforfait",
-    bron: FISIN + "eigen_woning_en_restschuld_vroegere",
+    bronnen: j => [fisin(j) + "eigen_woning_en_restschuld_vroegere"],
     schema: '{"rijen":[{"van":number,"tot":number|null,"pct":fractie,"basis":number}],"wozpeildatum_jaar":number}',
     instructie: "De standaardtabel eigenwoningforfait voor een eigen woning (niet de tabel voor tijdelijke verhuur of uitzending). Per rij: WOZ-waarde van/tot, percentage als fractie, en basis = vast bedrag dat bij die rij hoort (0 bij gewone rijen; bij de hoogste rij bijv. € 4.725 + 2,35% van het deel boven de grens: basis 4725, pct 0.0235, van = die grens). wozpeildatum_jaar = het jaar van de waardepeildatum (1 januari) van de WOZ-waarde die je voor dit belastingjaar moet gebruiken.",
     valideer: w => Array.isArray(w.rijen) && w.rijen.length >= 3 && w.rijen.every(r => isNum(r.van) && isFrac(r.pct) && isNum(r.basis ?? 0) && (r.tot === null || isNum(r.tot))) && isNum(w.wozpeildatum_jaar),
@@ -180,31 +181,31 @@ const CATALOGUS = [
   {
     key: "bijtelling", groep: "Auto van de zaak", sleutelJaar: "toelatingsjaar",
     naam: "Bijtelling auto van de zaak (per jaar van eerste toelating)",
-    bron: "https://www.belastingdienst.nl/wps/wcm/connect/nl/personeel-en-loon/content/reizen-werk-privegebruik-werknemer-wat-is-mijn-bijtelling",
+    bronnen: j => [`https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/winst/inkomstenbelasting/veranderingen-inkomstenbelasting-${j}/bijtelling-privegebruik-auto-${j}`, `https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/winst/inkomstenbelasting/verandering_inkomstenbelasting_vorige_jaren/veranderingen-inkomstenbelasting-${j}/bijtelling-privegebruik-auto-${j}`],
     schema: '{"standaard_pct":fractie,"ze_pct":fractie,"ze_cap":number|null,"waterstof_pct":fractie,"looptijd_maanden":number}',
-    instructie: "Neem de bijtelling voor auto's met een DATUM EERSTE TOELATING in het genoemde jaar. standaard_pct = percentage bij CO2-uitstoot > 0. ze_pct = percentage voor volledig elektrisch tot de grens; ze_cap = die grens van de catalogusprijs (null als er geen grens is). waterstof_pct = percentage voor waterstof/zonnecel. looptijd_maanden = hoe lang het percentage blijft gelden na eerste toelating (zoals 60).",
+    instructie: "Neem de bijtelling voor auto's met een DATUM EERSTE TOELATING in het genoemde jaar. standaard_pct = percentage bij CO2-uitstoot > 0. ze_pct = percentage voor volledig elektrisch tot de grens; ze_cap = die grens van de catalogusprijs (null als er geen grens is). waterstof_pct = percentage voor waterstof/zonnecel (staat er geen apart percentage, dan het verlaagde percentage dat voor waterstof geldt). looptijd_maanden = hoe lang het percentage blijft gelden na eerste toelating (zoals 60).",
     valideer: w => isFrac(w.standaard_pct) && isFrac(w.ze_pct) && (w.ze_cap === null || isNum(w.ze_cap)) && isFrac(w.waterstof_pct) && isNum(w.looptijd_maanden),
   },
   {
     key: "jaarruimte", groep: "Lijfrente",
     naam: "Jaarruimte: formule en grenzen",
-    bron: j => j === 2026 ? "https://odb.belastingdienst.nl/wp-content/uploads/2026/01/20251218-Overzicht-cijfers-leven-2026-FsL.pdf" : `https://wetten.overheid.nl/jci1.3:c:BWBR0011353&hoofdstuk=3&afdeling=3.6&paragraaf=3.6.2&artikel=3.127&z=${j}-01-01&g=${j}-01-01`,
+    bronnen: j => [`https://wetten.overheid.nl/jci1.3:c:BWBR0011353&hoofdstuk=3&afdeling=3.6&paragraaf=3.6.2&artikel=3.127&z=${j}-01-01&g=${j}-01-01`, ...(j === 2026 ? ["https://odb.belastingdienst.nl/wp-content/uploads/2026/01/20251218-Overzicht-cijfers-leven-2026-FsL.pdf"] : [])],
     schema: '{"pct":fractie,"factor_a_vermenigvuldiger":number,"franchise":number,"max_premiegrondslag":number,"max_jaarruimte":number|null,"basisjaar_offset":number}',
-    instructie: "Jaarruimte = pct × premiegrondslag − factor_a_vermenigvuldiger × factor A. Premiegrondslag = inkomen (gemaximeerd op max_premiegrondslag) − franchise. Geef de bedragen die gelden voor de jaarruimte VAN DIT JAAR. basisjaar_offset = hoeveel jaar eerder het inkomen en de factor A liggen (normaal 1). Zie je een afwijkende formule voor deelnemers in een nieuwe pensioenregeling (Wet toekomst pensioenen), noem dat in 'onzekerheid'.",
+    instructie: "Jaarruimte = pct × premiegrondslag − factor_a_vermenigvuldiger × factor A. Premiegrondslag = inkomen (gemaximeerd op max_premiegrondslag) − franchise. Geef de bedragen die gelden voor de jaarruimte VAN DIT JAAR. max_jaarruimte alleen invullen als dat bedrag letterlijk genoemd wordt, anders null. basisjaar_offset = hoeveel jaar eerder het inkomen en de factor A liggen (normaal 1). Zie je een afwijkende formule voor deelnemers in een nieuwe pensioenregeling (Wet toekomst pensioenen), noem dat in 'onzekerheid'.",
     valideer: w => isFrac(w.pct) && isNum(w.factor_a_vermenigvuldiger) && isNum(w.franchise) && isNum(w.max_premiegrondslag) && (w.max_jaarruimte === null || isNum(w.max_jaarruimte)) && isNum(w.basisjaar_offset),
   },
   {
     key: "reserveringsruimte", groep: "Lijfrente",
     naam: "Reserveringsruimte: terugkijktermijn en maximum",
-    bron: j => j === 2026 ? "https://odb.belastingdienst.nl/wp-content/uploads/2026/01/20251218-Overzicht-cijfers-leven-2026-FsL.pdf" : `https://wetten.overheid.nl/jci1.3:c:BWBR0011353&hoofdstuk=3&afdeling=3.6&paragraaf=3.6.2&artikel=3.128&z=${j}-01-01&g=${j}-01-01`,
+    bronnen: j => [fisin(j) + "uitgaven_voor_inkomensvoorzieningen"],
     schema: '{"jaren_terug":number,"max_per_jaar":number}',
-    instructie: "jaren_terug = over hoeveel voorafgaande jaren onbenutte jaarruimte mag worden ingehaald (bijv. 10). max_per_jaar = het maximumbedrag dat je in dit jaar aan reserveringsruimte mag benutten.",
+    instructie: "jaren_terug = over hoeveel voorafgaande jaren onbenutte jaarruimte mag worden ingehaald; je mag dit afleiden uit een letterlijk genoemde periode (bijv. 'jaarruimte in 2016 tot en met 2025' = 10). max_per_jaar = het maximumbedrag dat je in dit jaar aan reserveringsruimte mag benutten.",
     valideer: w => isNum(w.jaren_terug) && w.jaren_terug >= 1 && w.jaren_terug <= 20 && isNum(w.max_per_jaar),
   },
   {
     key: "kot_tabel", groep: "Kinderopvangtoeslag",
     naam: "Kinderopvangtoeslag: vergoedingspercentages per toetsingsinkomen",
-    bron: "https://www.rijksoverheid.nl/themas/belastingen-uitkeringen-en-toeslagen/kinderopvangtoeslag/bedragen-kinderopvangtoeslag-{jaar}",
+    bronnen: j => [`https://www.rijksoverheid.nl/themas/belastingen-uitkeringen-en-toeslagen/kinderopvangtoeslag/bedragen-kinderopvangtoeslag-${j}`],
     schema: '{"rijen":[{"van":number,"tot":number|null,"eerste":fractie,"volgend":fractie}]}',
     instructie: "Neem ALLE rijen van de tabel, van laagste tot hoogste toetsingsinkomen. 'van'/'tot' zijn de grenzen van het gezamenlijke toetsingsinkomen (inclusief), de laatste rij heeft tot=null. 'eerste' = percentage eerste kind, 'volgend' = percentage volgend kind, beide als fractie. Sla geen rijen over en vat niets samen.",
     valideer: w => Array.isArray(w.rijen) && w.rijen.length >= 5 && w.rijen.every((r, i, a) => isNum(r.van) && isFrac(r.eerste) && isFrac(r.volgend) && (i === a.length - 1 ? r.tot === null || isNum(r.tot) : isNum(r.tot))),
@@ -212,7 +213,7 @@ const CATALOGUS = [
   {
     key: "kot_max", groep: "Kinderopvangtoeslag",
     naam: "Kinderopvangtoeslag: maximum uurprijzen en maximum uren",
-    bron: "https://www.rijksoverheid.nl/themas/belastingen-uitkeringen-en-toeslagen/kinderopvangtoeslag/bedragen-kinderopvangtoeslag-{jaar}",
+    bronnen: j => [`https://www.rijksoverheid.nl/themas/belastingen-uitkeringen-en-toeslagen/kinderopvangtoeslag/bedragen-kinderopvangtoeslag-${j}`],
     schema: '{"dagopvang":number,"bso":number,"gastouder":number,"max_uren_per_maand":number}',
     instructie: "Maximum uurprijzen in euro's voor dagopvang (kinderdagverblijf), buitenschoolse opvang en gastouderopvang voor DIT jaar, en het maximum aantal uren per kind per maand.",
     valideer: w => ["dagopvang", "bso", "gastouder", "max_uren_per_maand"].every(k => isNum(w[k])),
@@ -526,11 +527,13 @@ function huishoudBerekening(h, jaar) {
    4. OPHALEN — desktop-browser of geplakte tekst → Claude extraheert → concept
    ===================================================================== */
 function sleutelJaar(def, jaar) { return def.sleutelJaar === "toelatingsjaar" ? (Number(document.getElementById("bt_jaar")?.value) || jaar) : jaar; }
-function bronUrl(def, jaar) {
+/** Kandidaat-bronnen in volgorde: eerder gebruikte bron eerst, daarna de standaardbronnen. */
+function bronLijst(def, jaar) {
   const opgeslagen = S.regels[`${jaar}_${def.key}`];
-  if (opgeslagen && opgeslagen.bron_url) return opgeslagen.bron_url;
-  return typeof def.bron === "function" ? def.bron(jaar) : def.bron.replace("{jaar}", jaar);
+  return [...new Set([opgeslagen && opgeslagen.bron_url, ...def.bronnen(jaar)].filter(Boolean))];
 }
+function isPdf(url) { return /\.pdf($|[?#])/i.test(url); }
+const wacht = ms => new Promise(r => setTimeout(r, ms));
 function tekstUitResultaat(res) {
   if (!res) return "";
   if (typeof res.payload === "string") return res.payload;
@@ -541,9 +544,14 @@ function tekstUitResultaat(res) {
 async function leesViaBrowser(url) {
   if (!S.mcp) throw { code: "geen_browser" };
   await S.mcp.callTool("host:claude_browser", "navigate", { url });
-  const res = await S.mcp.callTool("host:claude_browser", "get_page_text", {});
-  const t = tekstUitResultaat(res);
-  if (!t || t.length < 20) throw { code: "lege_pagina", message: "De pagina gaf geen tekst terug." };
+  // Wacht tot de pagina is geladen: lees opnieuw zolang de tekst kort is of nog groeit.
+  let t = "", vorige = -1;
+  for (let poging = 0; poging < 5; poging++) {
+    if (poging) await wacht(1500);
+    t = tekstUitResultaat(await S.mcp.callTool("host:claude_browser", "get_page_text", {}));
+    if (t.length >= 1500 && t.length === vorige) break;
+    vorige = t.length;
+  }
   return t;
 }
 async function extraheer(def, jaar, brontekst) {
@@ -602,18 +610,39 @@ async function hash(t) {
   try { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)); return [...new Uint8Array(b)].slice(0, 8).map(x => x.toString(16).padStart(2, "0")).join(""); } catch { return null; }
 }
 async function haalOp(def, jaar, methode, geplakt) {
-  const url = document.getElementById(`url_${def.key}`)?.value.trim() || bronUrl(def, jaar);
-  S.bezig[def.key] = methode === "browser" ? "Pagina lezen via de desktop-app…" : "Tekst verwerken…"; renderRegels();
+  const veld = document.getElementById(`url_${def.key}`);
+  const urls = (veld ? veld.value.split(/\s+/) : bronLijst(def, jaar)).map(u => u.trim()).filter(Boolean);
+  const pogingen = [];
+  const zet = m => { S.bezig[def.key] = m; renderRegels(); };
   try {
-    const tekst = methode === "browser" ? await leesViaBrowser(url) : geplakt;
-    if (!tekst || tekst.trim().length < 100) throw { code: "lege_pagina", message: "Plak eerst de volledige tekst van de bronpagina." };
-    S.bezig[def.key] = "Claude haalt de waarden uit de brontekst…"; renderRegels();
-    const r = await extraheer(def, jaar, tekst);
-    const geldig = r && r.gevonden && r.waarde && def.valideer(r.waarde);
-    const controle = r && r.waarde ? getallenControle(r.waarde, tekst) : { totaal: 0, mis: [] };
-    S.concept[def.key] = { ...r, jaar, geldig: !!geldig, controle, bron_url: url, methode, bron_hash: await hash(tekst), opgehaald_op: new Date().toISOString() };
-  } catch (e) { S.concept[def.key] = { fout: foutTekst(e) }; }
+    if (methode === "plakken") {
+      if (!geplakt || geplakt.trim().length < 100) throw { code: "lege_pagina", message: "Plak eerst de volledige tekst van de bronpagina." };
+      zet("Claude haalt de waarden uit de geplakte tekst…");
+      S.concept[def.key] = await verwerk(def, jaar, geplakt, urls[0] || "", "plakken", pogingen);
+      return;
+    }
+    let laatste = null;
+    for (const url of urls) {
+      if (isPdf(url)) { pogingen.push({ url, uitkomst: "pdf: de browser kan pdf-tekst niet uitlezen. Open de pdf, kopieer de tekst en gebruik Tekst plakken." }); continue; }
+      zet(`Pagina lezen (${pogingen.length + 1}/${urls.length})…`);
+      let tekst = "";
+      try { tekst = await leesViaBrowser(url); }
+      catch (e) { if (e && (e.code === "geen_browser" || e.code === "server_not_connected")) throw e; pogingen.push({ url, uitkomst: foutTekst(e) }); continue; }
+      if (tekst.trim().length < 400) { pogingen.push({ url, uitkomst: `pagina gaf vrijwel geen tekst (${tekst.length} tekens); mogelijk een keuzehulp of nog niet geladen` }); continue; }
+      zet("Claude haalt de waarden uit de brontekst…");
+      laatste = await verwerk(def, jaar, tekst, url, "browser", pogingen);
+      if (laatste.geldig) break;
+      pogingen.push({ url, uitkomst: `${tekst.length} tekens gelezen, waarden niet gevonden${laatste.onzekerheid ? ": " + laatste.onzekerheid : ""}` });
+    }
+    S.concept[def.key] = laatste && laatste.geldig ? laatste : { fout: "Geen van de bronnen leverde bruikbare waarden op.", pogingen };
+  } catch (e) { S.concept[def.key] = { fout: foutTekst(e), pogingen }; }
   finally { delete S.bezig[def.key]; renderRegels(); }
+}
+async function verwerk(def, jaar, tekst, url, methode, pogingen) {
+  const r = await extraheer(def, jaar, tekst);
+  const geldig = r && r.gevonden && r.waarde && def.valideer(r.waarde);
+  const controle = r && r.waarde ? getallenControle(r.waarde, tekst) : { totaal: 0, mis: [] };
+  return { ...r, jaar, geldig: !!geldig, controle, bron_url: url, methode, lengte: tekst.length, pogingen: [...pogingen], bron_hash: await hash(tekst), opgehaald_op: new Date().toISOString() };
 }
 function foutTekst(e) {
   const c = e && e.code;
@@ -962,7 +991,7 @@ function renderWoning() {
         <p class="small muted">De eigenwoningreserve is persoonlijk; zonder partnerregeling telt ieders eigen reserve alleen tegen het eigen aandeel.</p>
       </div>
     </div>
-    <div class="notice">De twee methoden verschillen ${eur(Math.abs(ew.ewsA - ew.ewsB))} eigenwoningschuld. Welke juridisch geldt, hangt af van de partnerregeling (<a href="${esc(FISIN.replace("{jaar}", jaar))}eigen_woning_met_overwaarde_verkocht" target="_blank" rel="noopener">Belastingdienst, bijleenregeling §12.2.4</a>) en van hoe de lening tussen jullie is verdeeld. Kies de methode die overeenkomt met jullie aangifte, of laat dit toetsen door een adviseur.</div>
+    <div class="notice">De twee methoden verschillen ${eur(Math.abs(ew.ewsA - ew.ewsB))} eigenwoningschuld. Welke juridisch geldt, hangt af van de partnerregeling (<a href="${esc(fisin(jaar))}eigen_woning_met_overwaarde_verkocht" target="_blank" rel="noopener">Belastingdienst, bijleenregeling §12.2.4</a>) en van hoe de lening tussen jullie is verdeeld. Kies de methode die overeenkomt met jullie aangifte, of laat dit toetsen door een adviseur.</div>
     ` : ""}
   </section>
 
@@ -1127,15 +1156,17 @@ function regelKaart(def, jaar) {
   const r = S.regels[`${jaar}_${def.key}`]; const c = S.concept[def.key]; const bezig = S.bezig[def.key];
   const chip = r ? (r.status === "geldend" ? `<span class="chip ok">${esc(statusLabel(r.status))}</span>` : `<span class="chip warn">${esc(statusLabel(r.status))}</span>`) : `<span class="chip bad">Niet opgehaald</span>`;
   let conceptHtml = "";
-  if (c && c.fout) conceptHtml = `<div class="notice bad">${esc(c.fout)}</div>`;
+  const pogHtml = c && c.pogingen && c.pogingen.length ? `<details ${c.fout ? "open" : ""}><summary>Geprobeerde bronnen (${c.pogingen.length})</summary><ul class="small">${c.pogingen.map(x => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.url)}</a><br><span class="muted">${esc(x.uitkomst)}</span></li>`).join("")}</ul></details>` : "";
+  if (c && c.fout) conceptHtml = `<div class="notice bad">${esc(c.fout)}</div>${pogHtml}`;
   else if (c) {
     const mis = c.controle.mis.map(m => `${m.sleutel}=${m.v}`).join(", ");
     conceptHtml = `<div class="notice ${c.geldig && !c.controle.mis.length ? "ok" : ""}">
-      <strong>Voorstel ter bevestiging (${c.jaar})</strong> ${c.jaar_in_bron ? `· jaar in bron: ${c.jaar_in_bron}` : ""}<br>
+      <strong>Voorstel ter bevestiging (${c.jaar})</strong> ${c.jaar_in_bron ? `· jaar in bron: ${c.jaar_in_bron}` : ""} · bron: <a href="${esc(c.bron_url)}" target="_blank" rel="noopener">${esc(c.bron_url.replace(/^https?:\/\//, "").slice(0, 70))}</a> (${c.lengte} tekens)<br>
       ${c.geldig ? "" : `<span style="color:var(--bad)">Niet bruikbaar: ${c.gevonden ? "de waarden voldoen niet aan de verwachte structuur" : "niet gevonden in deze bron"}.</span><br>`}
       Getallencontrole: ${c.controle.totaal - c.controle.mis.length} van ${c.controle.totaal} letterlijk teruggevonden in de bron${mis ? ` · <span style="color:var(--warn)">niet gevonden: ${esc(mis)}</span>` : ""}
       ${c.onzekerheid ? `<br>Onzekerheid volgens Claude: ${esc(c.onzekerheid)}` : ""}
     </div>
+    ${pogHtml}
     ${c.fragment ? `<details open><summary>Bronfragment</summary><div class="fragment">${esc(c.fragment)}</div></details>` : ""}
     ${c.waarde ? `<details><summary>Geëxtraheerde waarden</summary><div class="fragment">${esc(JSON.stringify(c.waarde, null, 1))}</div></details>` : ""}
     ${c.geldig ? `<div class="row"><label for="status_${def.key}">Juridische status<select id="status_${def.key}">${STATUSSEN.map(([v, l]) => `<option value="${v}" ${v === (c.status_hint || "geldend") ? "selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -1145,13 +1176,13 @@ function regelKaart(def, jaar) {
     <header><h3>${esc(def.naam)}${def.sleutelJaar ? ` · toelating ${jaar}` : ""}</h3>${chip}</header>
     ${r ? `<p class="small">${bronRef(r)} · ${esc(r.methode === "browser" ? "via desktop-browser" : r.methode === "plakken" ? "via geplakte tekst" : r.methode || "")} · getallen: ${esc(r.getallencontrole || "–")}${r.onzekerheid ? `<br><span class="muted">Onzekerheid: ${esc(r.onzekerheid)}</span>` : ""}</p>
       <details><summary>Vastgelegde waarden en fragment</summary><div class="fragment">${esc(JSON.stringify(r.waarde, null, 1))}</div><div class="fragment" style="margin-top:6px">${esc(r.fragment || "")}</div></details>` : ""}
-    <label for="url_${def.key}">Bron-URL<input id="url_${def.key}" value="${esc(bronUrl(def, jaar))}"></label>
+    <label for="url_${def.key}">Bronnen, één per regel, in volgorde van proberen<textarea id="url_${def.key}" style="min-height:${2.4 + 1.5 * bronLijst(def, jaar).length}em">${esc(bronLijst(def, jaar).join("\n"))}</textarea></label>
     <div class="row">
       <button data-act="browser" data-key="${def.key}" ${bezig || !S.mcp ? "disabled" : ""}>${r ? "Opnieuw ophalen" : "Ophalen"} via desktop-browser</button>
       <button class="ghost" data-act="plakopen" data-key="${def.key}" ${bezig ? "disabled" : ""}>Tekst plakken</button>
       ${bezig ? `<span class="small muted">${esc(bezig)}</span>` : ""}
     </div>
-    <div id="plak_${def.key}" hidden><label for="plaktekst_${def.key}">Volledige tekst van de bronpagina<textarea id="plaktekst_${def.key}" placeholder="Selecteer op de bronpagina alles (Ctrl/Cmd+A), kopieer, en plak hier."></textarea></label><div class="row" style="margin-top:6px"><button data-act="plak" data-key="${def.key}">Laat Claude de waarden eruit halen</button></div></div>
+    <div id="plak_${def.key}" hidden><label for="plaktekst_${def.key}">Volledige tekst van de bronpagina<textarea id="plaktekst_${def.key}" placeholder="Open de bron (ook een pdf), selecteer alles (Ctrl/Cmd+A), kopieer en plak hier. Tekst uit twee bronnen onder elkaar plakken mag ook."></textarea></label><div class="row" style="margin-top:6px"><button data-act="plak" data-key="${def.key}">Laat Claude de waarden eruit halen</button></div></div>
     ${conceptHtml}
   </div>`;
 }
